@@ -16,6 +16,9 @@ interface JwtPayload {
   jti?: string; // JWT ID for replay attack prevention
   twoFactorVerified?: boolean; // whether 2FA was completed for this session
   impersonatorId?: string; // ID of the admin impersonating this user
+  supportScopes?: string[]; // Support access scopes granted to this session
+  expiresAt?: string; // Explicit ISO string for time-bounded expiration
+  ticketId?: string; // Associated support ticket ID
   iat?: number;
   exp?: number;
 }
@@ -50,8 +53,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     // Check jti claim for replay attack prevention
-    if (payload.jti && this.tokenBlacklist.isRevoked(payload.jti)) {
+    if (payload.jti && (await this.tokenBlacklist.isRevoked(payload.jti))) {
       throw new UnauthorizedException("Token has been revoked");
+    }
+
+    // Reject sessions issued before the subject's revocation cutoff (logout
+    // everywhere, password change) even when their jti was never recorded.
+    const subject = payload.sub ?? payload.address;
+    if (subject && (await this.tokenBlacklist.isSessionStale(subject, payload.iat))) {
+      throw new UnauthorizedException("Session is no longer valid");
     }
 
     // Check if it's a traditional auth payload (has sub) or wallet auth payload (has address)
@@ -82,6 +92,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         jti: payload.jti,
         twoFactorVerified: payload.twoFactorVerified ?? false,
         impersonatorId: payload.impersonatorId,
+        isImpersonated: Boolean(payload.impersonatorId),
+        supportScopes: payload.supportScopes,
+        expiresAt: payload.expiresAt,
+        ticketId: payload.ticketId,
         exp: payload.exp,
         type: "traditional",
       };
@@ -95,6 +109,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         jti: payload.jti,
         twoFactorVerified: payload.twoFactorVerified ?? false,
         impersonatorId: payload.impersonatorId,
+        isImpersonated: Boolean(payload.impersonatorId),
+        supportScopes: payload.supportScopes,
+        expiresAt: payload.expiresAt,
+        ticketId: payload.ticketId,
         exp: payload.exp,
         type: "wallet",
       };

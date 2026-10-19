@@ -11,6 +11,10 @@ import { ReconciliationAudit } from "./entities/reconciliation-audit.entity";
 import { ReconciliationInvoice } from "./entities/reconciliation-invoice.entity";
 import { StellarTransaction } from "./entities/stellar-transaction.entity";
 import { FeatureFlagsService } from "../config/feature-flags.service";
+import { FeatureFlagRolloutGuard } from "../config/feature-flag-rollout.guard";
+
+import { AuthModule } from "../core/auth/auth.module";
+import { UserModule } from "../core/user/user.module";
 
 import { AuthModule } from "../core/auth/auth.module";
 import { UserModule } from "../core/user/user.module";
@@ -34,7 +38,13 @@ import { UserModule } from "../core/user/user.module";
     DryRunReconciliationService,
     TransactionDetailsService,
     FeatureFlagsService,
+    FeatureFlagRolloutGuard,
   ],
-  exports: [ReconciliationService, DryRunReconciliationService, TransactionDetailsService],
+  exports: [
+    ReconciliationService,
+    DryRunReconciliationService,
+    TransactionDetailsService,
+    FeatureFlagRolloutGuard,
+  ],
 })
 export class ReconciliationModule {}

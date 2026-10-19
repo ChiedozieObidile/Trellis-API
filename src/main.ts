@@ -75,7 +75,8 @@ async function bootstrap() {
   app.use(sentryBreadcrumbMiddleware);
 
   // Security Headers - Helmet
-  app.use(helmet.default(createHelmetConfig()));
+  const helmetMiddleware = helmet.default || (helmet as any);
+  app.use(helmetMiddleware(createHelmetConfig()));
 
   // Handle favicon requests to prevent 404 errors in logs
   app.use((req: any, res: any, next: any) => {
@@ -87,7 +88,9 @@ async function bootstrap() {
   });
 
   // Global configuration
-  app.setGlobalPrefix("api/v1");
+  app.setGlobalPrefix("api/v1", {
+    exclude: ["api/ws/(.*)", "api/ws/ticket"],
+  });
   // URI-based versioning (e.g. /api/v1/... and /api/v2/...).
   // The global prefix remains "api" while version segments appear per-route.
   app.enableVersioning({

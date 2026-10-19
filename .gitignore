@@ -152,6 +152,9 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# Backfill checkpoints — produced by `npm run backfill` (see docs/BACKFILL.md)
+.backfill/
+
 # Generated OpenAPI artifacts — produced by `npm run openapi:export`.
 # `docs/openapi.json` is intentionally NOT ignored: it is the committed contract
 # baseline that `scripts/check-openapi-drift.ts` diffs the live controller
@@ -166,3 +169,6 @@ client/
 # OpenAPI Generator CLI cache
 .openapi-generator/
 openapitools.json
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
