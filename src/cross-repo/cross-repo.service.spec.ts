@@ -23,7 +23,7 @@ function validEnvelope(
   overrides: Record<string, unknown> = {},
 ): any {
   const { signature, ...rest } = overrides;
-  const envelope = {
+  const envelope: any = {
     clientId: "trellis-frontend",
     contractVersion: "1.0",
     requestType: "oracle.submission",
@@ -218,7 +218,7 @@ describe("CrossRepoRequestValidationService", () => {
         contractVersions: ["1.0"],
       });
       expect(created.status).toBe("active");
-      expect(created.secret).toBeUndefined();
+      expect((created as any).secret).toBeUndefined();
 
       expect(service.listClients().map((c) => c.clientId)).toContain("trellis-mobile");
 
