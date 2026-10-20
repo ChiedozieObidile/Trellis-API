@@ -195,6 +195,8 @@ import { ExportModule } from "./infrastructure/export/export.module";
 import { SnapshotModule } from "./snapshot/snapshot.module";
 // Modules – recovery center (issue #122)
 import { RecoveryModule } from "./recovery/recovery.module";
+// Modules – cross-repo request validation (issue #353)
+import { CrossRepoModule } from "./cross-repo/cross-repo.module";
 import { QuotaBudgetModule } from "./common/quota/quota-budget.module";
 import { DistributedLockModule } from "./infrastructure/distributed-lock/distributed-lock.module";
 import { ApiDeprecationMiddleware } from "./common/versioning/api-deprecation.middleware";
@@ -375,6 +377,7 @@ import { ReleaseModule } from "./common/release/release.module";
     DistributedLockModule,
     SnapshotModule,
     RecoveryModule,
+    CrossRepoModule,
     VersioningModule,
     CacheModule,
     MarketCacheWarmersModule,
