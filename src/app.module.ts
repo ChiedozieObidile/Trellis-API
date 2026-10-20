@@ -201,6 +201,8 @@ import { CrossRepoModule } from "./cross-repo/cross-repo.module";
 import { SnapshotExportModule } from "./snapshot/export/snapshot-export.module";
 // Modules – dependency-health degraded mode (issue #355)
 import { DegradedModeModule } from "./dependency-health/degraded-mode/degraded-mode.module";
+// Modules – event dead-letter recovery (issue #354)
+import { EventDeadLetterModule } from "./common/events/dead-letter/event-dead-letter.module";
 import { QuotaBudgetModule } from "./common/quota/quota-budget.module";
 import { DistributedLockModule } from "./infrastructure/distributed-lock/distributed-lock.module";
 import { ApiDeprecationMiddleware } from "./common/versioning/api-deprecation.middleware";
@@ -384,6 +386,7 @@ import { ReleaseModule } from "./common/release/release.module";
     CrossRepoModule,
     SnapshotExportModule,
     DegradedModeModule,
+    EventDeadLetterModule,
     VersioningModule,
     CacheModule,
     MarketCacheWarmersModule,
