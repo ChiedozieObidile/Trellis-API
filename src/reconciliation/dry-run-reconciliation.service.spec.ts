@@ -569,8 +569,21 @@ describe("DryRunReconciliationService", () => {
 
   it("marks a scan complete when the source has exactly the requested number of rows", async () => {
     const { service } = buildService(
-      [invoice({ invoiceId: "INV-ONLY" })],
-      [transaction({ transactionId: "tx-only" })]
+      [
+        invoice({
+          invoiceId: "INV-ONLY",
+          expectedAmount: "100.0000000",
+          paidAmount: "100.0000000",
+          status: ReconciliationInvoiceStatus.PAID,
+        }),
+      ],
+      [
+        transaction({
+          transactionId: "tx-only",
+          amount: "100.0000000",
+          status: StellarTransactionStatus.MATCHED,
+        }),
+      ],
     );
 
     const report = await service.runDryRun({ limit: 1 });

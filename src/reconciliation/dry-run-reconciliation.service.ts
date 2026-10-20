@@ -445,7 +445,11 @@ export class DryRunReconciliationService {
       userBalanceSource = "disabled";
     } else if (this.balanceProvider) {
       userBalanceSource = "provider";
-      const accounts = [...derivedByAccount.keys()];
+      const accounts = [
+        ...new Set(
+          [...derivedByAccount.keys()].map((key) => key.split("|")[0]),
+        ),
+      ];
       const snapshots = await this.loadBalanceSnapshots(accounts);
       findings.push(
         ...this.findBalanceDrift(derivedByAccount, snapshots, toleranceUnits)
