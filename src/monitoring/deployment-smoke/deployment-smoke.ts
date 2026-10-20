@@ -70,11 +70,12 @@ export async function runDeploymentSmokeTests(
   for (const address of addresses) {
     let last: SmokeProbeResult = { ok: false, error: "No probe result" };
     let attempts = 0;
-    for (; attempts < maxAttempts; attempts += 1) {
+    while (attempts < maxAttempts) {
+      attempts += 1;
       last = await probe(address, false);
       if (last.ok) break;
-      if (attempts + 1 < maxAttempts) {
-        await sleep(options.backoffMs ?? 100 * 2 ** attempts);
+      if (attempts < maxAttempts) {
+        await sleep(options.backoffMs ?? 100 * 2 ** (attempts - 1));
       }
     }
 
@@ -85,9 +86,9 @@ export async function runDeploymentSmokeTests(
       }
     }
 
-    results.push({ ...address, ok: last.ok, attempts: attempts || 1, status: last.status, error: last.error });
+    results.push({ ...address, ok: last.ok, attempts, status: last.status, error: last.error });
   }
 
   const failed = results.filter((result) => !result.ok && result.required !== false).length;
-  return { allPassed: failed === 0, passed: results.length - failed, failed, results };
+  return { allPassed: failed === 0, passed: results.filter((result) => result.ok).length, failed, results };
 }

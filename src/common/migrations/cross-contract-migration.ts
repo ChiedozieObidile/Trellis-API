@@ -60,7 +60,7 @@ export function buildCrossContractMigrationDryRun(
 
   for (const key of Object.keys(plan.target.state)) {
     if ((plan.keys ?? Object.keys(plan.target.state)).includes(key) && !Object.prototype.hasOwnProperty.call(plan.source.state, key)) {
-      operations.push({ key, from: undefined, to: plan.target.state[key], action: "delete", reversible: false });
+      operations.push({ key, from: plan.target.state[key], to: undefined, action: "delete", reversible: false });
       warnings.push(`Target-only state '${key}' would be deleted; review before applying.`);
     }
   }
