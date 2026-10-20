@@ -583,6 +583,63 @@ describe("DryRunReconciliationService", () => {
     expect(report.findings).toEqual([]);
   });
 
+  it("produces the same findings and duplicate representative for permuted source rows", async () => {
+    const invoices = [
+      invoice({
+        invoiceId: "INV-Z",
+        expectedAmount: "25.0000000",
+        paidAmount: "25.0000000",
+        paymentReference: "shared-reference",
+        status: ReconciliationInvoiceStatus.PAID,
+      }),
+      invoice({
+        invoiceId: "INV-A",
+        expectedAmount: "25.0000000",
+        paidAmount: "25.0000000",
+        paymentReference: "shared-reference",
+        status: ReconciliationInvoiceStatus.PAID,
+      }),
+    ];
+    const transactions = [
+      transaction({
+        transactionId: "tx-z",
+        amount: "25.0000000",
+        paymentReference: "shared-reference",
+        status: StellarTransactionStatus.MATCHED,
+      }),
+      transaction({
+        transactionId: "tx-a",
+        amount: "25.0000000",
+        paymentReference: "shared-reference",
+        status: StellarTransactionStatus.MATCHED,
+      }),
+    ];
+    const first = await buildService(invoices, transactions).service.runDryRun();
+    const reversed = await buildService(
+      [...invoices].reverse(),
+      [...transactions].reverse(),
+    ).service.runDryRun();
+
+    expect({
+      totals: first.totals,
+      counts: first.counts,
+      invariants: first.invariants,
+      findings: first.findings,
+    }).toEqual({
+      totals: reversed.totals,
+      counts: reversed.counts,
+      invariants: reversed.invariants,
+      findings: reversed.findings,
+    });
+    expect(first.findings).toContainEqual(
+      expect.objectContaining({
+        type: ReconciliationFindingType.DUPLICATE_TRANSACTION,
+        transactionId: "tx-z",
+        message: expect.stringContaining("duplicate of tx-a"),
+      }),
+    );
+  });
+
   it("keeps the scheduled entry point read-only and non-throwing", async () => {
     const { service, invoiceRepo, transactionRepo } = buildService(
       [
