@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import {
   Address,
+  Contract,
   Networks,
   rpc,
   scValToNative,
@@ -27,6 +28,68 @@ export function hashOracleArguments(args: xdr.ScVal[]): string {
   return createHash("sha256")
     .update(xdr.ScVal.scvVec(args).toXdr())
     .digest("hex");
+}
+
+/** Stellar RPC rejects getLedgerEntries requests with more than 200 keys. */
+export const MAX_LEDGER_KEYS_PER_REQUEST = 200;
+/** Upper bound for one ledger scan: at most five RPC round trips. */
+export const MAX_LEDGER_KEYS_PER_SCAN = 1000;
+/** Persistent key of the oracle contract's price history map. */
+const FEED_HISTORY_KEY = "feed_his";
+
+export type LedgerEntryState = "live" | "archived" | "missing";
+
+export interface LedgerEntryStatus {
+  /** Base64 LedgerKey XDR. */
+  key: string;
+  state: LedgerEntryState;
+  liveUntilLedger: number | null;
+  lastModifiedLedger: number | null;
+}
+
+export interface LedgerScan {
+  latestLedger: number;
+  /** One status per requested key, in request order. */
+  entries: LedgerEntryStatus[];
+  /** Raw entries that exist on the ledger (live or archived), by base64 key. */
+  found: Map<string, rpc.Api.LedgerEntryResult>;
+}
+
+export interface OracleLedgerState {
+  latestLedger: number;
+  instance: LedgerEntryStatus;
+  /** Null when the instance is missing or is not backed by uploaded Wasm. */
+  code: LedgerEntryStatus | null;
+  history: LedgerEntryStatus;
+}
+
+/**
+ * Classifies one getLedgerEntries result. RPC omits keys that do not exist and
+ * returns archived entries with a liveUntilLedgerSeq below the latest ledger
+ * (0 when Core does not report the archived TTL). An expired temporary entry is
+ * deleted, not archived, so it can never be restored.
+ */
+export function classifyLedgerEntry(
+  key: xdr.LedgerKey,
+  encodedKey: string,
+  entry: rpc.Api.LedgerEntryResult | undefined,
+  latestLedger: number,
+): LedgerEntryStatus {
+  const lastModifiedLedger = entry?.lastModifiedLedgerSeq ?? null;
+  const liveUntilLedger = entry?.liveUntilLedgerSeq ?? null;
+  let state: LedgerEntryState = "missing";
+  if (entry) {
+    // Classic entries (accounts, trustlines) carry no TTL and never archive.
+    if (liveUntilLedger === null || liveUntilLedger >= latestLedger) {
+      state = "live";
+    } else if (
+      key.type !== "contractData" ||
+      key.contractData.durability.name !== "temporary"
+    ) {
+      state = "archived";
+    }
+  }
+  return { key: encodedKey, state, liveUntilLedger, lastModifiedLedger };
 }
 
 @Injectable()
@@ -109,20 +172,116 @@ export class StellarOracleAdapter {
     }
   }
 
-  async verify(
-    submission: SubmissionReference,
-  ): Promise<{ hash: string; timestamp: number; ledger: number }> {
+  private requireServer(): rpc.Server {
     if (!this.server)
       throw new OracleVerificationError(
         "NOT_CONFIGURED",
         "Configure SOROBAN_RPC_URL and ORACLE_CONTRACT_ADDRESS",
       );
-    const network = await this.request(() => this.server.getNetwork());
+    return this.server;
+  }
+
+  async assertNetwork(): Promise<void> {
+    const server = this.requireServer();
+    const network = await this.request(() => server.getNetwork());
     if (network.passphrase !== this.passphrase)
       throw new OracleVerificationError(
         "NETWORK_MISMATCH",
         "Soroban RPC network does not match STELLAR_NETWORK_PASSPHRASE",
       );
+  }
+
+  /**
+   * Reads ledger entries in RPC-sized chunks and classifies each as live,
+   * archived or missing. Keys are de-duplicated and the scan is capped, so cost
+   * is O(n) time and space with ceil(n / 200) round trips, n <= 1000.
+   */
+  async readLedgerEntries(keys: xdr.LedgerKey[]): Promise<LedgerScan> {
+    const server = this.requireServer();
+    const encoded = keys.map((key) => key.toXdr("base64"));
+    const unique = new Map<string, xdr.LedgerKey>();
+    encoded.forEach((key, index) => unique.set(key, keys[index]));
+    if (unique.size > MAX_LEDGER_KEYS_PER_SCAN)
+      throw new OracleVerificationError(
+        "LEDGER_SCAN_LIMIT",
+        `Ledger scans are limited to ${MAX_LEDGER_KEYS_PER_SCAN} distinct keys`,
+      );
+    const pending = [...unique.keys()];
+    const statuses = new Map<string, LedgerEntryStatus>();
+    const found = new Map<string, rpc.Api.LedgerEntryResult>();
+    let latestLedger = 0;
+    for (let i = 0; i < pending.length; i += MAX_LEDGER_KEYS_PER_REQUEST) {
+      const chunk = pending.slice(i, i + MAX_LEDGER_KEYS_PER_REQUEST);
+      const response = await this.request(() =>
+        server.getLedgerEntries(...chunk.map((key) => unique.get(key))),
+      );
+      latestLedger = Math.max(latestLedger, response.latestLedger);
+      for (const entry of response.entries)
+        found.set(entry.key.toXdr("base64"), entry);
+      for (const key of chunk)
+        statuses.set(
+          key,
+          classifyLedgerEntry(
+            unique.get(key),
+            key,
+            found.get(key),
+            response.latestLedger,
+          ),
+        );
+    }
+    return {
+      latestLedger,
+      entries: encoded.map((key) => statuses.get(key)),
+      found,
+    };
+  }
+
+  /**
+   * Reports the entries every submit_price invocation depends on: the contract
+   * instance (instance storage holds submitters, nonces and latest prices), its
+   * Wasm code, and the persistent price history map.
+   */
+  async getOracleLedgerState(): Promise<OracleLedgerState> {
+    this.requireServer();
+    const contract = new Contract(this.contract);
+    const instanceKey = contract.getFootprint();
+    const historyKey = xdr.LedgerKey.contractData(
+      new xdr.LedgerKeyContractData({
+        contract: contract.address().toScAddress(),
+        key: xdr.ScVal.scvSymbol(FEED_HISTORY_KEY),
+        durability: xdr.ContractDataDurability.persistent,
+      }),
+    );
+    const scan = await this.readLedgerEntries([instanceKey, historyKey]);
+    const [instance, history] = scan.entries;
+    const instanceData = scan.found.get(instance.key)?.val;
+    const value =
+      instanceData?.type === "contractData"
+        ? instanceData.contractData.val
+        : undefined;
+    let code: LedgerEntryStatus | null = null;
+    let latestLedger = scan.latestLedger;
+    if (
+      value?.type === "scvContractInstance" &&
+      value.instance.executable.type === "contractExecutableWasm"
+    ) {
+      const codeScan = await this.readLedgerEntries([
+        xdr.LedgerKey.contractCode(
+          new xdr.LedgerKeyContractCode({
+            hash: value.instance.executable.wasmHash,
+          }),
+        ),
+      ]);
+      code = codeScan.entries[0];
+      latestLedger = Math.max(latestLedger, codeScan.latestLedger);
+    }
+    return { latestLedger, instance, code, history };
+  }
+
+  async verify(
+    submission: SubmissionReference,
+  ): Promise<{ hash: string; timestamp: number; ledger: number }> {
+    await this.assertNetwork();
     const transaction = await this.request(() =>
       this.server.getTransaction(submission.transactionHash),
     );
